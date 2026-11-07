@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#080e1b">
+  <title>NOVA LIST | 위시리스트</title>
+  <link rel="stylesheet" href="./style.css">
+  <script src="./script.js" defer></script>
+</head>
+<body>
+  <main class="app">
+    <header class="topbar">
+      <div class="brand"><span class="brand-icon">✦</span><span>NOVA<span class="muted-brand">LIST</span></span></div>
+      <span class="connection"><i></i> WISHLIST SYSTEM</span>
+    </header>
+
+    <section class="intro">
+      <div><div class="eyebrow">PERSONAL COLLECTION / 01</div><h1>미래의 위시리스트<span class="accent">.</span></h1><p>갖고 싶은 아이템을 모으고, 예산에 맞게 골라보세요.</p></div>
+      <div class="intro-symbol" aria-hidden="true"><span>✧</span></div>
+    </section>
+
+    <nav class="tabs" aria-label="기능 선택">
+      <button class="tab active" type="button" data-tab="list" aria-selected="true">01 <span>위시리스트</span></button>
+      <button class="tab" type="button" data-tab="add" aria-selected="false">02 <span>아이템 등록</span></button>
+      <button class="tab" type="button" data-tab="recommend" aria-selected="false">03 <span>예산 추천</span></button>
+    </nav>
+
+    <section class="screen active" id="screen-list" aria-labelledby="list-heading">
+      <div class="screen-heading"><div><span class="section-kicker">MY COLLECTION</span><h2 id="list-heading">나의 위시리스트 <span class="count" id="item-count">0</span></h2></div><button class="outline-btn" id="refresh-btn" type="button">↻ 새로고침</button></div>
+      <div class="items" id="item-list" aria-live="polite"><div class="empty">목록을 불러오는 중...</div></div>
+      <div class="pager"><button class="pager-btn" id="prev-btn" type="button" aria-label="이전 페이지">← 이전</button><span id="page-label">1 / 1</span><button class="pager-btn" id="next-btn" type="button" aria-label="다음 페이지">다음 →</button></div>
+    </section>
+
+    <section class="screen" id="screen-add" aria-labelledby="add-heading" hidden>
+      <div class="screen-heading"><div><span class="section-kicker">NEW ENTRY</span><h2 id="add-heading">새 아이템 등록</h2></div><span class="step-tag">+ ADD ITEM</span></div>
+      <form id="add-form" class="form-area">
+        <label for="item-name">아이템 이름</label>
+        <input id="item-name" type="text" maxlength="100" placeholder="예: 나이키 러닝화, 복싱 글러브" autocomplete="off" required>
+        <label for="item-price">가격 <span class="unit">KRW</span></label>
+        <input id="item-price" type="number" min="0" max="2147483647" step="1" placeholder="예: 129000" required>
+        <button id="add-btn" class="primary-btn" type="submit">위시리스트에 추가 <span>↗</span></button>
+        <p class="notice" id="add-message" role="status" aria-live="polite"></p>
+      </form>
+      <p class="footnote">아이템 종류에 따라 목록에 표시되는 아이콘이 자동으로 달라져요.</p>
+    </section>
+
+    <section class="screen" id="screen-recommend" aria-labelledby="recommend-heading" hidden>
+      <div class="screen-heading"><div><span class="section-kicker">BUDGET SCANNER</span><h2 id="recommend-heading">예산 맞춤 추천</h2></div><span class="step-tag">✧ SMART PICK</span></div>
+      <form id="budget-form" class="budget-area"><label for="budget">사용할 수 있는 예산 <span class="unit">KRW</span></label><div class="budget-row"><input id="budget" type="number" min="0" max="2147483647" step="1" placeholder="예: 50000" required><button id="recommend-btn" class="primary-btn" type="submit">추천 검색 ↗</button></div></form>
+      <p class="footnote">개별 가격이 예산 이하인 아이템 중 저렴한 순서대로 최대 3개 추천해요.</p>
+      <div class="result-header"><span>SCAN RESULTS</span><span id="result-count">대기 중</span></div>
+      <div class="results" id="recommend-results" aria-live="polite"><div class="empty">예산을 입력하면 추천 결과가 여기에 표시돼요.</div></div>
+    </section>
+
+    <footer><span>✦ NOVA LIST</span><span>YOUR NEXT DISCOVERY / 2026</span></footer>
+  </main>
+</body>
+</html>

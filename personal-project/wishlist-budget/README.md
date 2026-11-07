@@ -17,6 +17,8 @@ Spring Boot 기반의 취미 아이템 관리 및 예산별 추천 REST API 개�
 | 예산별 추천 | 예산 이하 아이템을 저가순 최대 3개 추천 |
 | 입력값 검증 | 빈 이름, 음수 가격 및 예산 방지 |
 | 예외 처리 | 존재하지 않는 아이템 조회 시 404 반환 |
+| 프론트엔드 | HTML·CSS·JavaScript 기반 웹 화면 구현 |
+| 페이지 전환 | 위시리스트·아이템 등록·예산 추천 화면 전환 및 목록 페이징 |
 
 ### 💰 예산별 추천 규칙
 
@@ -39,8 +41,6 @@ Spring Boot 기반의 취미 아이템 관리 및 예산별 추천 REST API 개�
 | GET | `/collections/{id}` | 특정 아이템 조회 |
 | GET | `/collections/recommend?budget=50000` | 예산별 추천 |
 
-
-
 ---
 
 ## 🏗️ 프로젝트 구조
@@ -62,12 +62,20 @@ com.example.wishlistbudget
 ├── service
 │   └── CollectionService
 └── WishlistBudgetApplication
+
+src/main/resources
+├── static
+│   ├── index.html
+│   ├── style.css
+│   └── script.js
+└── application.properties
 ```
 
 - **Controller** : HTTP 요청 및 응답 처리
 - **Service** : 입력값 검증 및 추천 로직
 - **Repository** : 메모리 기반 데이터 저장 및 조회
 - **DTO** : 요청 및 응답 데이터 전달
+- **Frontend** : 웹 화면 구성 및 Fetch API를 통한 백엔드 연동
 
 ---
 
@@ -124,6 +132,25 @@ GET http://localhost:8080/collections/recommend?budget=50000
 
 ---
 
+## 🖥️ 프론트엔드
+
+순수 HTML·CSS·JavaScript로 SF 테마의 위시리스트 웹 화면을 구현했습니다.
+
+외부 라이브러리 및 CDN을 사용하지 않고, JavaScript의 `fetch()`를 이용해 Spring Boot REST API와 연동했습니다.
+
+- **위시리스트** : 등록된 아이템 목록 조회 및 4개 단위 페이징
+- **아이템 등록** : 이름과 가격 입력 후 API를 통해 등록
+- **예산 추천** : 예산 입력 후 추천 결과 표시
+- **화면 전환** : 탭을 이용해 각 기능을 별도 화면으로 표시
+
+Spring Boot 실행 후 아래 주소에서 웹 화면을 이용할 수 있습니다.
+
+```text
+http://localhost:8080
+```
+
+---
+
 ## 📝 구현 내용 정리
 
 - **계층형 구조** : Controller, Service, Repository 역할 분리
@@ -131,3 +158,6 @@ GET http://localhost:8080/collections/recommend?budget=50000
 - **입력값 검증** : Bean Validation 및 Service 검증
 - **추천 알고리즘** : 예산 필터링, 가격 오름차순 정렬, 최대 3개 반환
 - **테스트** : Mockito를 이용한 Service 단위 테스트
+- **프론트엔드** : 순수 HTML·CSS·JavaScript로 웹 UI 구현
+- **API 연동** : Fetch API를 이용한 아이템 등록·조회·추천 기능 연동
+- **페이징** : JavaScript를 이용한 클라이언트 측 목록 페이징
