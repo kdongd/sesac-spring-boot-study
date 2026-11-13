@@ -1,163 +1,650 @@
+# Wishlist Budget
 
-# 🎯 개인 과제 · 취미 위시리스트
+Spring Boot 기반 위시리스트 및 장바구니 관리 REST API 프로젝트입니다.
 
-Spring Boot 기반의 취미 아이템 관리 및 예산별 추천 REST API 개인 과제 입니다.
+사용자가 원하는 상품을 위시리스트에 등록하고, 예산에 맞는 상품을 추천받을 수 있습니다. 외부 상품 API를 통해 상품을 검색하고 가져올 수 있으며, 장바구니 수량 관리와 쿠폰 할인, 배송비 계산 기능을 제공합니다.
 
-구매하고 싶은 아이템을 등록하고, 입력한 예산에 맞는 아이템을 가격이 저렴한 순서대로 최대 3개 추천받을 수 있습니다.
+초기에는 `ArrayList` 기반 메모리 저장소를 사용했지만, 이후 **JDBC와 H2 데이터베이스를 도입하여 서버 재시작 후에도 데이터가 유지되도록 개선**했습니다.
 
 ---
 
-## ✨ 주요 기능
+## 1. 기술 스택
 
-| 기능 | 구현 내용 |
+| 구분 | 기술 |
 |---|---|
-| 아이템 등록 | 이름과 가격 등록, ID 자동 생성 |
-| 전체 조회 | 등록된 모든 아이템 조회 |
-| 단건 조회 | ID를 이용한 아이템 조회 |
-| 예산별 추천 | 예산 이하 아이템을 저가순 최대 3개 추천 |
-| 입력값 검증 | 빈 이름, 음수 가격 및 예산 방지 |
-| 예외 처리 | 존재하지 않는 아이템 조회 시 404 반환 |
-| 프론트엔드 | HTML·CSS·JavaScript 기반 웹 화면 구현 |
-| 페이지 전환 | 위시리스트·아이템 등록·예산 추천 화면 전환 및 목록 페이징 |
+| Language | Java 21 |
+| Framework | Spring Boot 4.1.2 |
+| Build Tool | Gradle |
+| Web | Spring MVC |
+| Database | H2 Database (File Mode) |
+| Database Access | Spring JDBC, JdbcTemplate |
+| External API | DummyJSON |
+| HTTP Client | Spring RestClient |
+| Validation | Jakarta Bean Validation |
+| Test | JUnit 5, Mockito |
+| API Test | Postman |
+| Frontend | HTML, CSS, JavaScript |
 
-### 💰 예산별 추천 규칙
-
-1. 예산 이하의 아이템만 선택
-2. 가격 오름차순 정렬
-3. 최대 3개 추천
-4. 동일 가격은 등록 순서 유지
-5. 추천 가능한 아이템이 없으면 빈 목록 반환
-
-> 예산은 아이템 가격의 합계가 아닌, 각 아이템의 개별 가격을 기준으로 합니다.
+JPA를 사용하지 않고 JDBC로 SQL을 직접 실행하여 데이터베이스에 접근하도록 구현했습니다.
 
 ---
 
-## 📡 REST API
+## 2. 주요 기능
+
+### 2.1. 위시리스트 관리
+
+- 상품 이름과 가격을 입력하여 위시리스트 등록
+- 등록된 전체 상품 조회
+- 상품 ID를 이용한 단건 조회
+- 예산 이하의 상품 중 가격이 낮은 순서대로 최대 3개 추천
+- 상품 이름 공백 및 음수 가격에 대한 유효성 검사
+- 직접 등록한 상품과 외부 상품 구분
+- JDBC를 통한 데이터베이스 저장 및 조회
+
+가격이 동일한 상품은 기존 등록 순서를 유지하도록 처리했습니다.
+
+### 2.2. 외부 상품 API 연동
+
+[DummyJSON](https://dummyjson.com/) API를 이용하여 외부 상품 정보를 조회합니다.
+
+- 외부 상품 목록 조회
+- 검색어를 이용한 상품 검색
+- 외부 상품 ID를 이용한 상세 조회
+- 외부 상품을 위시리스트로 가져오기
+- 동일 외부 상품 중복 등록 방지
+- 외부 API 오류 및 타임아웃 처리
+
+외부 상품 등록 시 클라이언트는 상품 ID만 전달합니다.
+
+서버가 직접 외부 API를 호출하여 상품 이름, 가격, 재고를 조회한 뒤 데이터베이스에 저장합니다.
+
+**외부 상품 가격 변환**
+
+```java
+BigDecimal convertedPrice = product.price()
+        .multiply(BigDecimal.valueOf(1000))
+        .setScale(0, RoundingMode.HALF_UP);
+```
+
+외부 상품 가격에 1,000을 곱하고 원 단위로 반올림하여 저장합니다.
+
+이는 실제 환율이 아닌 과제에서 정한 고정 환산 규칙입니다.
+
+### 2.3. 장바구니 관리
+
+- 위시리스트 상품을 장바구니에 등록
+- 동일 상품 추가 시 기존 수량에 합산
+- 상품별 수량 1~5개 제한
+- 장바구니 최대 20종류 제한
+- 외부 상품의 저장된 재고 수량 초과 방지
+- 수동 등록 상품은 재고 제한 없음
+- 장바구니 전체 조회
+- 장바구니 상품 수량 변경
+- 장바구니 상품 삭제
+- JDBC를 통한 장바구니 데이터 저장 및 조회
+
+**장바구니 스냅샷**
+
+상품을 장바구니에 처음 등록할 때 상품 이름, 가격, 재고를 복사하여 저장합니다.
+
+이후 원본 위시리스트 상품 정보가 변경되더라도 장바구니에는 최초 등록 당시의 상품 정보를 유지하도록 설계했습니다.
+
+### 2.4. 쿠폰 및 배송비 계산
+
+| 쿠폰 | 할인 조건 |
+|---|---|
+| `NONE` | 할인 없음 |
+| `PERCENT10` | 상품 합계의 10% 할인, 최대 20,000원 |
+| `FIXED15000` | 상품 합계가 100,000원 이상이면 15,000원 할인 |
+
+배송비는 쿠폰 적용 후 상품 금액을 기준으로 계산합니다.
+
+| 할인 후 상품 금액 | 배송비 |
+|---|---|
+| 100,000원 이상 | 무료 |
+| 100,000원 미만 | 5,000원 |
+| 빈 장바구니 | 0원 |
+
+금액 미리보기는 장바구니 데이터를 변경하지 않습니다.
+
+---
+
+## 3. REST API
+
+### 3.1. 위시리스트 API
 
 | Method | Endpoint | 설명 |
 |---|---|---|
-| POST | `/collections` | 아이템 등록 |
-| GET | `/collections` | 전체 아이템 조회 |
-| GET | `/collections/{id}` | 특정 아이템 조회 |
-| GET | `/collections/recommend?budget=50000` | 예산별 추천 |
+| POST | `/collections` | 상품 직접 등록 |
+| GET | `/collections` | 전체 상품 조회 |
+| GET | `/collections/{id}` | 상품 단건 조회 |
+| GET | `/collections/recommend?budget=50000` | 예산별 상품 추천 |
+| POST | `/collections/import` | 외부 상품 가져오기 |
 
----
+**상품 직접 등록**
 
-## 🏗️ 프로젝트 구조
-
-```text
-com.example.wishlistbudget
-├── controller
-│   └── CollectionController
-├── domain
-│   └── CollectionItem
-├── dto
-│   ├── CollectionRequest
-│   └── CollectionResponse
-├── exception
-│   └── CollectionItemNotFoundException
-├── repository
-│   ├── CollectionRepository
-│   └── MemoryCollectionRepository
-├── service
-│   └── CollectionService
-└── WishlistBudgetApplication
-
-src/main/resources
-├── static
-│   ├── index.html
-│   ├── style.css
-│   └── script.js
-└── application.properties
+```http
+POST /collections
+Content-Type: application/json
 ```
 
-- **Controller** : HTTP 요청 및 응답 처리
-- **Service** : 입력값 검증 및 추천 로직
-- **Repository** : 메모리 기반 데이터 저장 및 조회
-- **DTO** : 요청 및 응답 데이터 전달
-- **Frontend** : 웹 화면 구성 및 Fetch API를 통한 백엔드 연동
+```json
+{
+  "name": "복싱 글러브",
+  "price": 50000
+}
+```
+
+**외부 상품 등록**
+
+```http
+POST /collections/import
+Content-Type: application/json
+```
+
+```json
+{
+  "externalId": 1
+}
+```
+
+### 3.2. 외부 상품 API
+
+| Method | Endpoint | 설명 |
+|---|---|---|
+| GET | `/external/products?limit=10&skip=0` | 상품 목록 조회 |
+| GET | `/external/products/search?q=phone` | 상품 검색 |
+| GET | `/external/products/{id}` | 상품 상세 조회 |
+
+조회 조건:
+
+- `limit`: 기본값 10, 허용 범위 1~20
+- `skip`: 기본값 0, 0 이상
+- `q`: 필수 검색어, 공백만 입력 불가
+
+외부 API에서 `id`, `title`, `price`, `category`, `thumbnail`, `stock` 필드를 사용합니다.
+
+### 3.3. 장바구니 API
+
+| Method | Endpoint | 설명 |
+|---|---|---|
+| POST | `/cart/items` | 장바구니 상품 추가 |
+| GET | `/cart` | 장바구니 전체 조회 |
+| PUT | `/cart/items/{id}` | 장바구니 수량 변경 |
+| DELETE | `/cart/items/{id}` | 장바구니 상품 삭제 |
+| GET | `/cart/preview?coupon=NONE` | 쿠폰 및 배송비 계산 |
+
+**장바구니 상품 추가**
+
+```http
+POST /cart/items
+Content-Type: application/json
+```
+
+```json
+{
+  "collectionItemId": 1,
+  "quantity": 2
+}
+```
+
+**장바구니 수량 변경**
+
+```http
+PUT /cart/items/1
+Content-Type: application/json
+```
+
+```json
+{
+  "quantity": 3
+}
+```
 
 ---
 
-## 🧪 테스트
+## 4. JDBC + H2 데이터베이스 연동
 
-JUnit 5와 Mockito를 활용하여 `CollectionService`의 주요 기능을 검증했습니다.
+### 4.1. 변경 목적
 
-| 테스트 항목 | 검증 내용 |
+기존에는 `ArrayList`를 이용하여 위시리스트와 장바구니 데이터를 메모리에 저장했습니다.
+
+이 방식은 구현이 간단하지만 애플리케이션이 종료되면 저장된 데이터가 사라지는 문제가 있었습니다.
+
+이를 개선하기 위해 JDBC와 H2 데이터베이스를 도입했습니다.
+
+**변경 전**
+
+```text
+Controller
+    ↓
+Service
+    ↓
+Repository Interface
+    ↓
+MemoryCollectionRepository / MemoryCartRepository
+    ↓
+ArrayList
+```
+
+**변경 후**
+
+```text
+Controller
+    ↓
+Service
+    ↓
+Repository Interface
+    ↓
+JdbcCollectionRepository / JdbcCartRepository
+    ↓
+JdbcTemplate
+    ↓
+H2 Database
+```
+
+기존 Controller, Service, Domain, DTO의 역할과 비즈니스 로직은 최대한 유지하고 Repository 구현체를 교체했습니다.
+
+### 4.2. JDBC와 H2 의존성
+
+`build.gradle`에 다음 의존성을 추가했습니다.
+
+```gradle
+implementation 'org.springframework.boot:spring-boot-starter-jdbc'
+runtimeOnly 'com.h2database:h2'
+```
+
+JDBC를 이용하여 SQL을 직접 실행하고 H2 데이터베이스에 데이터를 저장합니다.
+
+### 4.3. H2 연결 설정
+
+`application.properties`
+
+```properties
+spring.datasource.url=jdbc:h2:file:./data/wishlist
+spring.datasource.driver-class-name=org.h2.Driver
+spring.datasource.username=sa
+spring.datasource.password=
+
+spring.sql.init.mode=always
+```
+
+파일 기반 H2를 사용하므로 애플리케이션을 종료하더라도 데이터가 유지됩니다.
+
+DB 파일은 프로젝트 실행 위치를 기준으로 다음 경로에 생성됩니다.
+
+```text
+data/wishlist.mv.db
+```
+
+테이블은 `schema.sql`을 통해 준비하며, 기존 데이터가 삭제되지 않도록 `CREATE TABLE IF NOT EXISTS`를 사용했습니다.
+
+### 4.4. 위시리스트 테이블
+
+**`collection_items`**
+
+| 컬럼 | 자료형 | 설명 |
+|---|---|---|
+| `id` | BIGINT | 기본 키, 자동 생성 |
+| `name` | VARCHAR(255) | 상품 이름 |
+| `price` | INTEGER | 상품 가격 |
+| `source_type` | VARCHAR(20) | MANUAL / EXTERNAL |
+| `external_id` | BIGINT | 외부 상품 ID |
+| `stock` | INTEGER | 외부 상품 재고 |
+
+테이블 생성 SQL:
+
+```sql
+CREATE TABLE IF NOT EXISTS collection_items (
+    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    price INTEGER NOT NULL,
+    source_type VARCHAR(20) NOT NULL,
+    external_id BIGINT,
+    stock INTEGER,
+
+    CONSTRAINT uk_collection_external
+        UNIQUE (source_type, external_id)
+);
+```
+
+**설계 의도**
+
+- `id`는 H2 데이터베이스에서 자동 생성합니다.
+- `source_type`으로 수동 등록 상품과 외부 상품을 구분합니다.
+- `external_id`는 외부 상품 ID를 저장합니다.
+- `stock`은 외부 상품의 재고 정보를 저장합니다.
+- 외부 상품의 중복 등록을 방지하기 위해 UNIQUE 제약조건을 사용했습니다.
+- 수동 등록 상품은 `external_id`가 NULL이므로 동일한 이름의 상품도 등록할 수 있습니다.
+
+### 4.5. 장바구니 테이블
+
+**`cart_items`**
+
+| 컬럼 | 자료형 | 설명 |
+|---|---|---|
+| `id` | BIGINT | 기본 키, 자동 생성 |
+| `collection_item_id` | BIGINT | 원본 위시리스트 상품 ID |
+| `name` | VARCHAR(255) | 최초 등록한 상품 이름 |
+| `price` | INTEGER | 최초 등록한 상품 가격 |
+| `stock` | INTEGER | 최초 등록한 재고 |
+| `quantity` | INTEGER | 장바구니 수량 |
+
+테이블 생성 SQL:
+
+```sql
+CREATE TABLE IF NOT EXISTS cart_items (
+    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    collection_item_id BIGINT NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    price INTEGER NOT NULL,
+    stock INTEGER,
+    quantity INTEGER NOT NULL
+);
+```
+
+장바구니에는 원본 위시리스트 상품 ID와 상품 정보 복사본을 함께 저장합니다.
+
+원본 위시리스트 상품이 변경되더라도 장바구니의 가격과 재고가 자동으로 변경되지 않도록 설계했습니다.
+
+### 4.6. JDBC Repository 구현
+
+**`JdbcCollectionRepository`**
+
+- 상품 직접 등록
+- 외부 상품 등록
+- 전체 상품 조회
+- 상품 ID 조회
+- 외부 상품 중복 여부 확인
+- DB에서 생성한 상품 ID 반환
+
+**`JdbcCartRepository`**
+
+- 장바구니 상품 등록
+- 장바구니 ID 조회
+- 위시리스트 상품 ID로 조회
+- 장바구니 전체 조회
+- 장바구니 수량 변경
+- 장바구니 상품 삭제
+
+기존 Repository 인터페이스를 유지하고 JDBC 구현체를 추가했습니다.
+
+실제 애플리케이션에서는 JDBC Repository를 사용하고, 기존 메모리 Repository는 단위 테스트에서 활용할 수 있도록 유지했습니다.
+
+### 4.7. SQL 작성 및 정렬 정책
+
+데이터 저장과 조회에는 SQL을 사용합니다.
+
+**상품 등록**
+
+```sql
+INSERT INTO collection_items
+(name, price, source_type, external_id, stock)
+VALUES (?, ?, ?, ?, ?);
+```
+
+**전체 상품 조회**
+
+```sql
+SELECT id, name, price, source_type, external_id, stock
+FROM collection_items
+ORDER BY id ASC;
+```
+
+**상품 ID 조회**
+
+```sql
+SELECT id, name, price, source_type, external_id, stock
+FROM collection_items
+WHERE id = ?;
+```
+
+**외부 상품 중복 확인**
+
+```sql
+SELECT COUNT(*)
+FROM collection_items
+WHERE source_type = ?
+  AND external_id = ?;
+```
+
+SQL에 사용자 입력값을 직접 문자열로 연결하지 않고 바인딩 파라미터를 사용했습니다.
+
+목록 조회 시 `ORDER BY id ASC`를 사용하여 등록 순서를 유지하도록 했습니다.
+
+---
+
+## 5. 예외 처리
+
+| HTTP 상태 코드 | 발생 상황 |
 |---|---|
-| 아이템 등록 | 이름 공백 제거 및 저장 |
-| 전체 조회 | 등록된 아이템 목록 조회 |
-| 단건 조회 | ID로 아이템 조회 |
-| 입력값 검증 | 잘못된 이름 및 가격 등록 방지 |
-| 예외 처리 | 존재하지 않는 ID 조회 |
-| 예산별 추천 | 가격 오름차순 및 최대 3개 |
-| 무료 아이템 | 예산 0원일 때 추천 |
-| 음수 예산 | 예외 발생 |
+| `400 Bad Request` | 잘못된 입력값, 수량, 쿠폰 |
+| `404 Not Found` | 존재하지 않는 위시리스트·장바구니·외부 상품 |
+| `409 Conflict` | 외부 상품 중복 등록, 수량·재고 제한 위반 |
+| `502 Bad Gateway` | 외부 API 오류 및 연결 실패 |
 
-**테스트 실행**
+외부 상품 중복 등록은 서비스에서 확인하는 것뿐 아니라 데이터베이스의 UNIQUE 제약조건으로도 방지하도록 설계했습니다.
 
-```bash
-./gradlew test
-```
+외부 API 요청에 실패한 경우 불완전한 상품 정보를 데이터베이스에 저장하지 않도록 처리했습니다.
 
 ---
 
-## 🚀 실행 방법
+## 6. 테스트 및 검증
 
-**1. 프로젝트 실행**
+### 6.1. 서비스 테스트
 
-```bash
-./gradlew bootRun
-```
+JUnit 5를 이용하여 위시리스트와 장바구니의 주요 비즈니스 로직을 검증했습니다.
 
-**2. API 호출**
+- 상품 정상 등록 및 조회
+- 예산별 상품 추천
+- 외부 상품 정상 등록
+- 외부 상품 중복 등록 방지
+- 품절 상품 위시리스트 등록
+- 장바구니 수량 합산
+- 수량 및 재고 제한
+- 장바구니 수정·삭제
+- 쿠폰 할인 및 배송비 계산
+
+### 6.2. 외부 API 테스트
+
+외부 DummyJSON 서버 대신 테스트용 로컬 HTTP 서버를 사용하여 외부 API 응답을 검증했습니다.
+
+- 정상 응답 처리
+- 404 오류 처리
+- 외부 서버 500 오류 처리
+- HTTP 201·400·404·409·502 응답 검증
+
+### 6.3. JDBC Repository 테스트
+
+JDBC Repository를 대상으로 다음 동작을 검증했습니다.
+
+- 위시리스트 데이터 저장 및 조회
+- DB 자동 생성 ID 확인
+- 외부 상품 중복 등록 방지
+- DB에 저장된 데이터의 객체 복원
+
+### 6.4. 통합 테스트 DB 분리
+
+JDBC 전환 이후 기존 HTTP 통합 테스트에서 다음 두 테스트가 실패했습니다.
 
 ```text
-POST http://localhost:8080/collections
-
-GET http://localhost:8080/collections
-
-GET http://localhost:8080/collections/1
-
-GET http://localhost:8080/collections/recommend?budget=50000
+ExternalApiIntegrationTest
+- importProduct_success()
+- importProduct_duplicate()
 ```
 
-**3. 전체 빌드 및 테스트**
+기존에는 메모리 Repository를 사용했기 때문에 테스트 데이터가 초기화됐지만, 파일 기반 H2로 전환한 이후에는 테스트 실행 사이에 데이터가 남을 수 있었습니다.
+
+이를 해결하기 위해 통합 테스트에서 별도의 H2 메모리 데이터베이스를 사용하도록 설정했습니다.
+
+```java
+@TestPropertySource(properties = {
+        "spring.datasource.url=jdbc:h2:mem:integration_test;DB_CLOSE_DELAY=-1"
+})
+```
+
+실제 애플리케이션 DB와 테스트 DB를 분리하여 기존 데이터의 영향을 받지 않도록 개선했습니다.
+
+### 6.5. 서버 재시작 후 데이터 유지 검증
+
+파일 기반 H2의 데이터 유지 여부를 직접 확인했습니다.
+
+**검증 순서**
+
+1. Spring Boot 실행
+2. 위시리스트에 상품 등록
+3. 등록된 상품의 ID, 이름, 가격 확인
+4. 장바구니에 상품 추가
+5. 애플리케이션 종료
+6. 동일한 설정으로 Spring Boot 재실행
+7. 위시리스트 및 장바구니 데이터 재조회
+
+**검증 결과**
+
+서버를 종료한 뒤 다시 실행해도 기존 위시리스트와 장바구니 데이터가 유지되는 것을 확인했습니다.
+
+### 6.6. 최종 테스트 및 빌드
+
+테스트 실행:
+
+```bash
+./gradlew clean test
+```
+
+결과:
+
+```text
+BUILD SUCCESSFUL
+```
+
+전체 빌드:
 
 ```bash
 ./gradlew clean build
 ```
 
-> 메모리 기반 저장소를 사용하므로 서버를 종료하면 등록된 데이터는 초기화됩니다.
+결과:
+
+```text
+BUILD SUCCESSFUL
+```
+
+기존 테스트 실패를 수정한 후 전체 테스트와 빌드가 정상적으로 완료됐습니다.
 
 ---
 
-## 🖥️ 프론트엔드
+## 7. 실행 방법
 
-순수 HTML·CSS·JavaScript로 SF 테마의 위시리스트 웹 화면을 구현했습니다.
+### 7.1. 실행 환경
 
-외부 라이브러리 및 CDN을 사용하지 않고, JavaScript의 `fetch()`를 이용해 Spring Boot REST API와 연동했습니다.
+- Java 21
+- Gradle Wrapper
+- H2 Database
+- 인터넷 연결 (DummyJSON 호출 시 필요)
 
-- **위시리스트** : 등록된 아이템 목록 조회 및 4개 단위 페이징
-- **아이템 등록** : 이름과 가격 입력 후 API를 통해 등록
-- **예산 추천** : 예산 입력 후 추천 결과 표시
-- **화면 전환** : 탭을 이용해 각 기능을 별도 화면으로 표시
+### 7.2. 서버 실행
 
-Spring Boot 실행 후 아래 주소에서 웹 화면을 이용할 수 있습니다.
+```bash
+./gradlew bootRun
+```
+
+기본 접속 주소:
 
 ```text
 http://localhost:8080
 ```
 
+### 7.3. 프론트엔드 실행
+
+Spring Boot의 정적 리소스 기능을 사용합니다.
+
+```text
+src/main/resources/static/
+├── index.html
+├── style.css
+└── script.js
+```
+
+별도의 프론트엔드 개발 서버 없이 Spring Boot 실행 후 브라우저에서 접속할 수 있습니다.
+
+### 7.4. 테스트 실행
+
+```bash
+./gradlew clean test
+```
+
+### 7.5. 전체 빌드
+
+```bash
+./gradlew clean build
+```
+
 ---
 
-## 📝 구현 내용 정리
+## 8. 구현 과정에서 해결한 문제
 
-- **계층형 구조** : Controller, Service, Repository 역할 분리
-- **의존성 주입** : Repository 인터페이스 기반 생성자 주입
-- **입력값 검증** : Bean Validation 및 Service 검증
-- **추천 알고리즘** : 예산 필터링, 가격 오름차순 정렬, 최대 3개 반환
-- **테스트** : Mockito를 이용한 Service 단위 테스트
-- **프론트엔드** : 순수 HTML·CSS·JavaScript로 웹 UI 구현
-- **API 연동** : Fetch API를 이용한 아이템 등록·조회·추천 기능 연동
-- **페이징** : JavaScript를 이용한 클라이언트 측 목록 페이징
+### 8.1. RestClient.Builder 주입 오류
+
+Spring Boot 4 환경에서 외부 API 연동을 구현하는 과정에서 다음 오류가 발생했습니다.
+
+```text
+No qualifying bean of type
+'org.springframework.web.client.RestClient$Builder' available
+```
+
+`build.gradle`에 RestClient 스타터 의존성을 추가하여 해결했습니다.
+
+```gradle
+implementation 'org.springframework.boot:spring-boot-starter-restclient'
+```
+
+### 8.2. 외부 상품 ID와 내부 상품 ID 구분
+
+외부 API의 상품 ID와 위시리스트의 내부 ID를 동일하게 사용하면 상품 식별자가 충돌할 수 있습니다.
+
+이를 방지하기 위해 내부 `id`와 `sourceType`, `externalId`를 분리했습니다.
+
+### 8.3. 메모리 저장소의 데이터 소실 문제
+
+기존 `ArrayList` 기반 Repository는 서버 종료 시 데이터가 사라졌습니다.
+
+JDBC와 파일 기반 H2를 도입하여 애플리케이션 재시작 후에도 데이터가 유지되도록 변경했습니다.
+
+### 8.4. 기존 비즈니스 로직 유지
+
+Repository 인터페이스를 유지한 상태에서 JDBC 구현체를 추가했습니다.
+
+이를 통해 Controller와 Service의 기존 역할을 변경하지 않고 데이터 저장 방식만 교체할 수 있었습니다.
+
+### 8.5. 테스트 데이터 충돌 문제
+
+파일 기반 H2 도입 후 기존 테스트에서 저장된 외부 상품이 중복 등록되는 문제가 발생했습니다.
+
+실제 애플리케이션 DB와 테스트 DB를 분리하여 해결했습니다.
+
+### 8.6. 장바구니 데이터 스냅샷 유지
+
+장바구니에 상품을 처음 추가할 때 상품 이름, 가격, 재고를 별도로 저장했습니다.
+
+JDBC 전환 이후에도 기존 장바구니 스냅샷 정책을 유지하도록 구현했습니다.
+
+---
+
+## 9. 구현 범위 및 향후 개선 사항
+
+### 구현 완료
+
+- 위시리스트 등록·조회·예산 추천
+- 외부 상품 목록·검색·상세 조회
+- 외부 상품 위시리스트 등록
+- 외부 상품 중복 등록 방지
+- 장바구니 등록·조회·수량 변경·삭제
+- 쿠폰 할인 및 배송비 계산
+- JDBC 기반 위시리스트 저장
+- JDBC 기반 장바구니 저장
+- 파일 기반 H2 데이터 유지
+- DB 자동 생성 ID 사용
+- SQL을 이용한 저장 및 조회
+- 서비스 테스트 및 HTTP 통합 테스트
+- 테스트 전용 DB 분리
+- Gradle 테스트 및 전체 빌드 검증

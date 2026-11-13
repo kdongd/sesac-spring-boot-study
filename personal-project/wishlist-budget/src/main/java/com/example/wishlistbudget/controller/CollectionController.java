@@ -3,6 +3,7 @@ package com.example.wishlistbudget.controller;
 import com.example.wishlistbudget.domain.CollectionItem;
 import com.example.wishlistbudget.dto.CollectionRequest;
 import com.example.wishlistbudget.dto.CollectionResponse;
+import com.example.wishlistbudget.external.dto.ExternalProductImportRequest;
 import com.example.wishlistbudget.service.CollectionService;
 
 import jakarta.validation.Valid;
@@ -81,5 +82,19 @@ public class CollectionController {
         CollectionItem item = service.getItem(id);
 
         return CollectionResponse.from(item);
+    }
+
+    // 외부 상품을 위시리스트에 등록
+    @PostMapping("/import")
+    public ResponseEntity<CollectionResponse> importProduct(
+            @Valid @RequestBody ExternalProductImportRequest request
+    ) {
+        CollectionItem item = service.importProduct(
+                request.externalId()
+        );
+
+        return ResponseEntity
+                .status(HttpStatus.CREATED)
+                .body(CollectionResponse.from(item));
     }
 }

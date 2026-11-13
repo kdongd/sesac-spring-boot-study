@@ -1,6 +1,7 @@
 package com.example.wishlistbudget.repository;
 
 import com.example.wishlistbudget.domain.CollectionItem;
+import com.example.wishlistbudget.domain.SourceType;
 import org.springframework.stereotype.Repository;
 
 import java.util.ArrayList;
@@ -23,7 +24,10 @@ public class MemoryCollectionRepository implements CollectionRepository {
         CollectionItem item = new CollectionItem(
                 sequence,
                 name,
-                price
+                price,
+                SourceType.MANUAL,
+                null,
+                null
         );
 
         items.add(item);
@@ -49,5 +53,38 @@ public class MemoryCollectionRepository implements CollectionRepository {
         }
 
         return Optional.empty();
+    }
+
+    // 외부 상품 저장
+    @Override
+    public CollectionItem saveExternal(String name, int price, Long externalId, Integer stock) {
+
+        sequence++;
+
+        CollectionItem item = new CollectionItem(
+                sequence,
+                name,
+                price,
+                SourceType.EXTERNAL,
+                externalId,
+                stock
+        );
+
+        items.add(item);
+
+        return item;
+    }
+
+    // 중복 확인
+    @Override
+    public boolean existsBySourceTypeAndExternalId(SourceType sourceType, Long externalId) {
+
+        for (CollectionItem item : items) {
+            if (item.sourceType() == sourceType
+                    && externalId.equals(item.externalId())) {
+                return true;
+            }
+        }
+        return false;
     }
 }

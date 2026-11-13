@@ -1,168 +1,186 @@
-
 package com.example.wishlistbudget.service;
 
 import com.example.wishlistbudget.domain.CollectionItem;
+import com.example.wishlistbudget.domain.SourceType;
 import com.example.wishlistbudget.exception.CollectionItemNotFoundException;
+import com.example.wishlistbudget.exception.DuplicateExternalProductException;
+import com.example.wishlistbudget.external.client.DummyJsonClient;
+import com.example.wishlistbudget.external.dto.DummyJsonProduct;
 import com.example.wishlistbudget.repository.CollectionRepository;
+import com.example.wishlistbudget.repository.MemoryCollectionRepository;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.web.client.RestClient;
 
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-
-import java.util.ArrayList;
+import java.math.BigDecimal;
 import java.util.List;
-import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
 
-@ExtendWith(MockitoExtension.class)
 class CollectionServiceTest {
 
-    @Mock
+    private CollectionService service;
     private CollectionRepository repository;
 
-    @InjectMocks
-    private CollectionService service;
+    @BeforeEach
+    void setUp() {
+        repository = new MemoryCollectionRepository();
 
-    @Test
-    @DisplayName("아이템 등록 시 이름의 앞뒤 공백을 제거하고 저장")
-    void addItem() {
+        DummyJsonClient client = new DummyJsonClient(RestClient.create()) {
 
-        CollectionItem savedItem = new CollectionItem(1L, "글러브", 250000);
+            @Override
+            public DummyJsonProduct getProduct(Long id) {
 
-        when(repository.save("글러브", 250000))
-                .thenReturn(savedItem);
+                if (id.equals(1L)) {
+                    return new DummyJsonProduct(
+                            1L, "운동화",
+                            new BigDecimal("50.00"),
+                            "shoes", "thumbnail.png", 10
+                    );
+                }
 
-        CollectionItem result = service.addItem("  글러브  ", 250000);
+                if (id.equals(2L)) {
+                    return new DummyJsonProduct(
+                            2L, "품절 운동화",
+                            new BigDecimal("30.00"),
+                            "shoes", "thumbnail.png", 0
+                    );
+                }
 
-        assertEquals(1L, result.id());
-        assertEquals("글러브", result.name());
-        assertEquals(250000, result.price());
+                throw new IllegalArgumentException("존재하지 않는 상품");
+            }
+        };
 
-        verify(repository).save("글러브", 250000);
+        service = new CollectionService(repository, client);
     }
 
     @Test
-    @DisplayName("등록된 아이템 전체 조회")
-    void getAllItems() {
+    @DisplayName("위시리스트에 상품을 정상 등록한다")
+    void addItem_success() {
 
-        List<CollectionItem> items = List.of(
-                new CollectionItem(1L, "글러브", 250000),
-                new CollectionItem(2L, "핸드랩", 45000)
+        CollectionItem result = service.addItem("운동화", 50000);
+
+        assertEquals("운동화", result.name());
+        assertEquals(50000, result.price());
+        assertEquals(SourceType.MANUAL, result.sourceType());
+        assertEquals(1, repository.findAll().size());
+    }
+
+    @Test
+    @DisplayName("상품 이름이 공백이면 등록할 수 없다")
+    void addItem_blankName() {
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> service.addItem("   ", 50000)
         );
 
-        when(repository.findAll()).thenReturn(items);
+        assertEquals(0, repository.findAll().size());
+    }
+
+    @Test
+    @DisplayName("상품 가격이 음수이면 등록할 수 없다")
+    void addItem_negativePrice() {
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> service.addItem("운동화", -1000)
+        );
+
+        assertEquals(0, repository.findAll().size());
+    }
+
+    @Test
+    @DisplayName("위시리스트의 모든 상품을 조회한다")
+    void getAllItems_success() {
+
+        service.addItem("운동화", 50000);
+        service.addItem("운동복", 30000);
 
         List<CollectionItem> result = service.getAllItems();
 
         assertEquals(2, result.size());
-        assertEquals("글러브", result.get(0).name());
-        assertEquals("핸드랩", result.get(1).name());
-
-        verify(repository).findAll();
+        assertEquals("운동화", result.get(0).name());
+        assertEquals("운동복", result.get(1).name());
     }
 
     @Test
-    @DisplayName("ID로 아이템 조회")
-    void getItem() {
+    @DisplayName("존재하지 않는 상품을 조회하면 예외가 발생한다")
+    void getItem_notFound() {
 
-        CollectionItem item = new CollectionItem(1L, "글러브", 250000);
-
-        when(repository.findById(1L))
-                .thenReturn(Optional.of(item));
-
-        CollectionItem result = service.getItem(1L);
-
-        assertEquals(item, result);
-
-        verify(repository).findById(1L);
+        assertThrows(
+                CollectionItemNotFoundException.class,
+                () -> service.getItem(999L)
+        );
     }
 
     @Test
-    @DisplayName("이름이 비어 있거나 가격이 음수이면 저장되지 않음")
-    void invalidItem() {
+    @DisplayName("예산 이하의 상품을 가격순으로 최대 3개 추천한다")
+    void recommend_success() {
 
-        assertThrows(IllegalArgumentException.class,
-                () -> service.addItem("   ", 10000));
-
-        assertThrows(IllegalArgumentException.class,
-                () -> service.addItem(null, 10000));
-
-        assertThrows(IllegalArgumentException.class,
-                () -> service.addItem("글러브", -1000));
-
-        verify(repository, never()).save(anyString(), anyInt());
-    }
-
-    @Test
-    @DisplayName("존재하지 않는 ID로 조회하면 예외 발생")
-    void itemNotFound() {
-
-        when(repository.findById(999L))
-                .thenReturn(Optional.empty());
-
-        assertThrows(CollectionItemNotFoundException.class,
-                () -> service.getItem(999L));
-
-        verify(repository).findById(999L);
-    }
-
-    @Test
-    @DisplayName("예산 이하 아이템을 가격 오름차순으로 최대 3개 추천")
-    void recommendItems() {
-
-        List<CollectionItem> items = new ArrayList<>(List.of(
-                new CollectionItem(1L, "글러브", 250000),
-                new CollectionItem(2L, "핸드랩", 45000),
-                new CollectionItem(3L, "마우스피스", 15000),
-                new CollectionItem(4L, "무료 줄넘기", 0),
-                new CollectionItem(5L, "운동 양말", 15000)
-        ));
-
-        when(repository.findAll()).thenReturn(items);
+        service.addItem("운동화", 50000);
+        service.addItem("양말", 5000);
+        service.addItem("운동복", 30000);
+        service.addItem("물통", 10000);
+        service.addItem("고가 운동화", 100000);
 
         List<CollectionItem> result = service.recommend(50000);
 
         assertEquals(3, result.size());
-        assertEquals("무료 줄넘기", result.get(0).name());
-        assertEquals("마우스피스", result.get(1).name());
-        assertEquals("운동 양말", result.get(2).name());
-
-        // 추천 후 원본 목록의 등록 순서가 유지되는지 검증
-        assertEquals("글러브", items.get(0).name());
-
-        verify(repository).findAll();
+        assertEquals("양말", result.get(0).name());
+        assertEquals("물통", result.get(1).name());
+        assertEquals("운동복", result.get(2).name());
     }
 
     @Test
-    @DisplayName("예산이 0원이면 무료 아이템만 추천")
-    void recommendFreeItem() {
+    @DisplayName("외부 상품을 위시리스트에 정상 등록한다")
+    void importProduct_success() {
 
-        List<CollectionItem> items = List.of(
-                new CollectionItem(1L, "글러브", 250000),
-                new CollectionItem(2L, "무료 줄넘기", 0)
+        CollectionItem result = service.importProduct(1L);
+
+        assertEquals("운동화", result.name());
+        assertEquals(50000, result.price());
+        assertEquals(SourceType.EXTERNAL, result.sourceType());
+        assertEquals(1L, result.externalId());
+        assertEquals(10, result.stock());
+    }
+
+    @Test
+    @DisplayName("동일한 외부 상품은 중복 등록할 수 없다")
+    void importProduct_duplicate() {
+
+        service.importProduct(1L);
+
+        assertThrows(
+                DuplicateExternalProductException.class,
+                () -> service.importProduct(1L)
         );
 
-        when(repository.findAll()).thenReturn(items);
-
-        List<CollectionItem> result = service.recommend(0);
-
-        assertEquals(1, result.size());
-        assertEquals("무료 줄넘기", result.get(0).name());
+        assertEquals(1, repository.findAll().size());
     }
 
     @Test
-    @DisplayName("예산이 음수이면 예외가 발생한다")
-    void invalidBudget() {
+    @DisplayName("재고가 0인 외부 상품도 위시리스트에 등록할 수 있다")
+    void importProduct_outOfStock() {
 
-        assertThrows(IllegalArgumentException.class,
-                () -> service.recommend(-1));
+        CollectionItem result = service.importProduct(2L);
 
-        verify(repository, never()).findAll();
+        assertEquals(0, result.stock());
+        assertEquals(30000, result.price());
+        assertEquals(1, repository.findAll().size());
+    }
+
+    @Test
+    @DisplayName("외부 상품 ID가 0이면 등록할 수 없다")
+    void importProduct_invalidId() {
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> service.importProduct(0L)
+        );
+
+        assertEquals(0, repository.findAll().size());
     }
 }
