@@ -40,3 +40,24 @@ input,select{background:#111418;color:#fff;border:1px solid #454950;border-radiu
 .cart-row{border-color:#3b3f46}.cart-thumb{background:#2b3036;border-radius:4px;color:#f15a60}.summary span{color:#aeb0b5}.summary .total{border-top:1px solid #50545a}.summary .total strong{color:#f0535a}
 .footer{border-top:1px solid #34373c;color:#7f848a}.toast{background:#c52b33;border-radius:4px}
 @media(max-width:720px){.sidebar{background:#171a1e;border-bottom:1px solid #383c43}.hero{min-height:270px}.hero h1{font-size:34px}.hero-ring{width:100px;height:100px;border-width:4px;box-shadow:5px 5px 0 #0c0e11}.hero-gloves{font-size:51px}.hero-face{font-size:9px;margin:0}.hero-label{display:none}.logo-icon{border-radius:3px}.stat-card{min-height:115px}}
+
+/* Product image containment and click-through fix */
+.product-media {
+  position: relative;
+  overflow: hidden;
+  min-width: 0;
+  flex-shrink: 0;
+}
+.product-media > img {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  padding: 10px;
+  pointer-events: none;
+}
+.product { min-width: 0; }
