@@ -11,8 +11,9 @@ import com.kdongd.shortari.exception.ShortUrlNotFoundException;
 import com.kdongd.shortari.repository.ShortUrlRepository;
 
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.dao.DuplicateKeyException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -38,7 +39,10 @@ public class ShortUrlService {
         this.baseUrl = baseUrl.replaceAll("/+$", "");
     }
 
+
     // 단축 URL 생성
+    // 단축 코드 충돌시 재시도를 해야 하는데 하나의 트랜잭션으로 묶으면
+    // 첫 실패 때 롤백 전용 상태가 되어서 재시도가 불가능해짐.
     public ShortUrlResponse create(ShortUrlCreateRequest request) {
 
         String originalUrl = normalizer.normalize(request.originalUrl());
@@ -73,17 +77,13 @@ public class ShortUrlService {
             String shortCode = generator.generate();
 
             try {
-
                 ShortUrl saved = repository.save(
-                        originalUrl,
-                        shortCode,
-                        displayName,
-                        mode
+                        new ShortUrl(originalUrl, shortCode, displayName, mode)
                 );
 
                 return ShortUrlResponse.from(saved, baseUrl);
 
-            } catch (DuplicateKeyException e) {
+            } catch (DataIntegrityViolationException e) {
 
                 // 표시 이름이 중복된 경우에는 코드 재생성이 의미 없음
                 if (displayName != null
@@ -98,16 +98,19 @@ public class ShortUrlService {
         throw new ShortCodeGenerationException();
     }
 
+
     // 전체 링크 조회
+    @Transactional(readOnly = true)
     public List<ShortUrlResponse> findAll() {
 
-        return repository.findAll()
+        return repository.findAllByOrderByCreatedAtDescIdDesc()
                 .stream()
                 .map(shortUrl -> ShortUrlResponse.from(shortUrl, baseUrl))
                 .toList();
     }
 
     // ID로 단건 조회
+    @Transactional(readOnly = true)
     public ShortUrlResponse findById(Long id) {
 
         ShortUrl shortUrl = repository.findById(id)
@@ -117,14 +120,16 @@ public class ShortUrlService {
     }
 
     // 단축 코드로 원본 URL 조회
+    @Transactional(readOnly = true)
     public String findOriginalUrl(String shortCode) {
 
         return repository.findByShortCode(shortCode)
                 .orElseThrow(ShortUrlNotFoundException::new)
-                .originalUrl();
+                .getOriginalUrl();
     }
 
     // 표시 이름 수정
+    @Transactional
     public ShortUrlResponse updateName(
             Long id,
             ShortUrlNameUpdateRequest request
@@ -135,8 +140,8 @@ public class ShortUrlService {
 
         String displayName = request.displayName().trim();
 
-        if (existing.displayName() != null
-                && existing.displayName().equals(displayName)) {
+        if (existing.getDisplayName() != null
+                && existing.getDisplayName().equals(displayName)) {
             return ShortUrlResponse.from(existing, baseUrl);
         }
 
@@ -146,26 +151,25 @@ public class ShortUrlService {
 
         try {
 
-            boolean updated = repository.updateDisplayName(id, displayName);
+            existing.changeDisplayName(displayName);
 
-            if (!updated) {
-                throw new ShortUrlNotFoundException();
-            }
+            // UPDATE를 즉시 실행해서, 이름 중복(UNIQUE 위반)을 여기서 잡음
+            repository.flush();
 
-        } catch (DuplicateKeyException e) {
+        } catch (DataIntegrityViolationException e) {
             throw new DuplicateDisplayNameException();
         }
 
-        return findById(id);
+        return ShortUrlResponse.from(existing, baseUrl);
     }
 
     // 링크 삭제
+    @Transactional
     public void delete(Long id) {
 
-        boolean deleted = repository.deleteById(id);
+        ShortUrl shortUrl = repository.findById(id)
+                .orElseThrow(ShortUrlNotFoundException::new);
 
-        if (!deleted) {
-            throw new ShortUrlNotFoundException();
-        }
+        repository.delete(shortUrl);
     }
 }
