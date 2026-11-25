@@ -1,4 +1,3 @@
-
 package com.kdongd.shortari.service;
 
 import com.kdongd.shortari.domain.ShortUrl;
@@ -17,13 +16,17 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.dao.DuplicateKeyException;
+
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -31,6 +34,9 @@ import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class ShortUrlServiceTest {
+
+    private static final LocalDateTime CREATED_AT =
+            LocalDateTime.of(2026, 11, 16, 12, 0);
 
     @Mock
     private ShortUrlRepository repository;
@@ -51,15 +57,42 @@ class ShortUrlServiceTest {
                 "http://localhost:8080"
         );
 
-        sampleUrl = new ShortUrl(
+        sampleUrl = createShortUrl(
                 1L,
                 "https://www.naver.com",
                 "aB3xK912",
                 "네이버",
-                UrlMode.NAMING,
-                LocalDateTime.of(2026, 11, 16, 12, 0)
+                UrlMode.NAMING
         );
     }
+
+    // 테스트용 엔티티 생성 (id, createdAt은 원래 DB/JPA가 채우므로 직접 주입)
+    private ShortUrl createShortUrl(
+            Long id,
+            String originalUrl,
+            String shortCode,
+            String displayName,
+            UrlMode mode
+    ) {
+        ShortUrl shortUrl = new ShortUrl(originalUrl, shortCode, displayName, mode);
+        ReflectionTestUtils.setField(shortUrl, "id", id);
+        ReflectionTestUtils.setField(shortUrl, "createdAt", CREATED_AT);
+        return shortUrl;
+    }
+
+    // save() 호출 시 실제 저장처럼 id, createdAt을 채워서 반환
+    private void givenSaveSucceeds() {
+        AtomicLong sequence = new AtomicLong(1);
+
+        when(repository.save(any(ShortUrl.class))).thenAnswer(invocation -> {
+            ShortUrl shortUrl = invocation.getArgument(0);
+            ReflectionTestUtils.setField(shortUrl, "id", sequence.getAndIncrement());
+            ReflectionTestUtils.setField(shortUrl, "createdAt", CREATED_AT);
+            return shortUrl;
+        });
+    }
+
+    // ===== 생성 =====
 
     @Test
     @DisplayName("원본 URL을 입력하면 단축 URL이 정상적으로 생성된다")
@@ -71,32 +104,19 @@ class ShortUrlServiceTest {
         );
 
         when(generator.generate()).thenReturn("aB3xK912");
-
-        when(repository.save(
-                eq("https://www.naver.com"),
-                eq("aB3xK912"),
-                isNull(),
-                eq(UrlMode.SHORT)
-        )).thenReturn(
-                new ShortUrl(
-                        1L,
-                        "https://www.naver.com",
-                        "aB3xK912",
-                        null,
-                        UrlMode.SHORT,
-                        sampleUrl.createdAt()
-                )
-        );
+        givenSaveSucceeds();
 
         ShortUrlResponse response = service.create(request);
 
-        assertEquals(
-                "http://localhost:8080/r/aB3xK912",
-                response.shortUrl()
-        );
-
+        assertEquals("http://localhost:8080/r/aB3xK912", response.shortUrl());
         assertEquals("https://www.naver.com", response.originalUrl());
         assertEquals(UrlMode.SHORT, response.mode());
+        assertNull(response.displayName());
+
+        ArgumentCaptor<ShortUrl> captor = ArgumentCaptor.forClass(ShortUrl.class);
+        verify(repository).save(captor.capture());
+        assertEquals("https://www.naver.com", captor.getValue().getOriginalUrl());
+        assertEquals("aB3xK912", captor.getValue().getShortCode());
     }
 
     @Test
@@ -109,13 +129,7 @@ class ShortUrlServiceTest {
         );
 
         when(generator.generate()).thenReturn("aB3xK912");
-
-        when(repository.save(
-                "https://www.naver.com",
-                "aB3xK912",
-                "네이버",
-                UrlMode.NAMING
-        )).thenReturn(sampleUrl);
+        givenSaveSucceeds();
 
         ShortUrlResponse response = service.create(request);
 
@@ -134,26 +148,8 @@ class ShortUrlServiceTest {
                 UrlMode.SHORT
         );
 
-        when(generator.generate())
-                .thenReturn("aB3xK912", "X7kP2mQ9");
-
-        when(repository.save(
-                eq("https://www.naver.com"),
-                anyString(),
-                isNull(),
-                eq(UrlMode.SHORT)
-        )).thenAnswer(invocation -> {
-            String code = invocation.getArgument(1);
-
-            return new ShortUrl(
-                    code.equals("aB3xK912") ? 1L : 2L,
-                    "https://www.naver.com",
-                    code,
-                    null,
-                    UrlMode.SHORT,
-                    sampleUrl.createdAt()
-            );
-        });
+        when(generator.generate()).thenReturn("aB3xK912", "X7kP2mQ9");
+        givenSaveSucceeds();
 
         ShortUrlResponse first = service.create(request);
         ShortUrlResponse second = service.create(request);
@@ -161,12 +157,7 @@ class ShortUrlServiceTest {
         assertNotEquals(first.shortCode(), second.shortCode());
         assertEquals(first.originalUrl(), second.originalUrl());
 
-        verify(repository, times(2)).save(
-                eq("https://www.naver.com"),
-                anyString(),
-                isNull(),
-                eq(UrlMode.SHORT)
-        );
+        verify(repository, times(2)).save(any(ShortUrl.class));
     }
 
     @Test
@@ -178,17 +169,14 @@ class ShortUrlServiceTest {
                 UrlMode.NAMING
         );
 
-        when(repository.existsByDisplayName("네이버"))
-                .thenReturn(true);
+        when(repository.existsByDisplayName("네이버")).thenReturn(true);
 
         assertThrows(
                 DuplicateDisplayNameException.class,
                 () -> service.create(request)
         );
 
-        verify(repository, never()).save(
-                anyString(), anyString(), any(), any()
-        );
+        verify(repository, never()).save(any(ShortUrl.class));
     }
 
     @Test
@@ -200,32 +188,22 @@ class ShortUrlServiceTest {
                 UrlMode.SHORT
         );
 
-        when(generator.generate())
-                .thenReturn("aB3xK912", "X7kP2mQ9");
+        when(generator.generate()).thenReturn("aB3xK912", "X7kP2mQ9");
 
-        when(repository.save(
-                eq("https://www.naver.com"),
-                anyString(),
-                isNull(),
-                eq(UrlMode.SHORT)
-        ))
-                .thenThrow(new DuplicateKeyException("Duplicate short_code"))
-                .thenReturn(new ShortUrl(
-                        2L,
-                        "https://www.naver.com",
-                        "X7kP2mQ9",
-                        null,
-                        UrlMode.SHORT,
-                        sampleUrl.createdAt()
-                ));
+        when(repository.save(any(ShortUrl.class)))
+                .thenThrow(new DataIntegrityViolationException("Duplicate short_code"))
+                .thenAnswer(invocation -> {
+                    ShortUrl shortUrl = invocation.getArgument(0);
+                    ReflectionTestUtils.setField(shortUrl, "id", 2L);
+                    ReflectionTestUtils.setField(shortUrl, "createdAt", CREATED_AT);
+                    return shortUrl;
+                });
 
         ShortUrlResponse response = service.create(request);
 
         assertEquals("X7kP2mQ9", response.shortCode());
         verify(generator, times(2)).generate();
-        verify(repository, times(2)).save(
-                anyString(), anyString(), isNull(), eq(UrlMode.SHORT)
-        );
+        verify(repository, times(2)).save(any(ShortUrl.class));
     }
 
     @Test
@@ -238,10 +216,8 @@ class ShortUrlServiceTest {
         );
 
         when(generator.generate()).thenReturn("aB3xK912");
-
-        when(repository.save(
-                anyString(), anyString(), isNull(), eq(UrlMode.SHORT)
-        )).thenThrow(new DuplicateKeyException("Duplicate short_code"));
+        when(repository.save(any(ShortUrl.class)))
+                .thenThrow(new DataIntegrityViolationException("Duplicate short_code"));
 
         assertThrows(
                 ShortCodeGenerationException.class,
@@ -249,6 +225,29 @@ class ShortUrlServiceTest {
         );
 
         verify(generator, times(10)).generate();
+    }
+
+    @Test
+    @DisplayName("사전 확인 후 저장 직전에 같은 이름이 먼저 등록되면 재시도 없이 이름 중복 예외가 발생한다")
+    void displayNameConflictOnSaveTest() {
+        ShortUrlCreateRequest request = new ShortUrlCreateRequest(
+                "www.naver.com",
+                "네이버",
+                UrlMode.NAMING
+        );
+
+        // 첫 확인에서는 없었지만, 저장 실패 후 다시 확인했을 때는 존재 (동시 요청 상황)
+        when(repository.existsByDisplayName("네이버")).thenReturn(false, true);
+        when(generator.generate()).thenReturn("aB3xK912");
+        when(repository.save(any(ShortUrl.class)))
+                .thenThrow(new DataIntegrityViolationException("Duplicate display_name"));
+
+        assertThrows(
+                DuplicateDisplayNameException.class,
+                () -> service.create(request)
+        );
+
+        verify(generator, times(1)).generate();
     }
 
     @Test
@@ -296,10 +295,13 @@ class ShortUrlServiceTest {
         );
     }
 
+    // ===== 조회 =====
+
     @Test
     @DisplayName("전체 단축 URL 목록을 조회할 수 있다")
     void findAllTest() {
-        when(repository.findAll()).thenReturn(List.of(sampleUrl));
+        when(repository.findAllByOrderByCreatedAtDescIdDesc())
+                .thenReturn(List.of(sampleUrl));
 
         List<ShortUrlResponse> responses = service.findAll();
 
@@ -311,7 +313,8 @@ class ShortUrlServiceTest {
     @Test
     @DisplayName("등록된 링크가 없으면 빈 목록을 반환한다")
     void findAllEmptyTest() {
-        when(repository.findAll()).thenReturn(List.of());
+        when(repository.findAllByOrderByCreatedAtDescIdDesc())
+                .thenReturn(List.of());
 
         List<ShortUrlResponse> responses = service.findAll();
 
@@ -321,8 +324,7 @@ class ShortUrlServiceTest {
     @Test
     @DisplayName("ID로 단축 URL을 조회할 수 있다")
     void findByIdTest() {
-        when(repository.findById(1L))
-                .thenReturn(Optional.of(sampleUrl));
+        when(repository.findById(1L)).thenReturn(Optional.of(sampleUrl));
 
         ShortUrlResponse response = service.findById(1L);
 
@@ -333,8 +335,7 @@ class ShortUrlServiceTest {
     @Test
     @DisplayName("존재하지 않는 ID를 조회하면 예외가 발생한다")
     void findByIdNotFoundTest() {
-        when(repository.findById(999L))
-                .thenReturn(Optional.empty());
+        when(repository.findById(999L)).thenReturn(Optional.empty());
 
         assertThrows(
                 ShortUrlNotFoundException.class,
@@ -345,8 +346,7 @@ class ShortUrlServiceTest {
     @Test
     @DisplayName("단축 코드로 원본 URL을 조회할 수 있다")
     void findOriginalUrlTest() {
-        when(repository.findByShortCode("aB3xK912"))
-                .thenReturn(Optional.of(sampleUrl));
+        when(repository.findByShortCode("aB3xK912")).thenReturn(Optional.of(sampleUrl));
 
         String originalUrl = service.findOriginalUrl("aB3xK912");
 
@@ -356,8 +356,7 @@ class ShortUrlServiceTest {
     @Test
     @DisplayName("존재하지 않는 단축 코드로 조회하면 예외가 발생한다")
     void findOriginalUrlNotFoundTest() {
-        when(repository.findByShortCode("NOTFOUND"))
-                .thenReturn(Optional.empty());
+        when(repository.findByShortCode("NOTFOUND")).thenReturn(Optional.empty());
 
         assertThrows(
                 ShortUrlNotFoundException.class,
@@ -365,82 +364,74 @@ class ShortUrlServiceTest {
         );
     }
 
+    // ===== 이름 수정 =====
+
     @Test
     @DisplayName("표시 이름을 정상적으로 수정할 수 있다")
     void updateDisplayNameTest() {
-        ShortUrlNameUpdateRequest request =
-                new ShortUrlNameUpdateRequest("네이버 메인");
+        ShortUrlNameUpdateRequest request = new ShortUrlNameUpdateRequest("네이버 메인");
 
-        ShortUrl updatedUrl = new ShortUrl(
-                1L,
-                sampleUrl.originalUrl(),
-                sampleUrl.shortCode(),
-                "네이버 메인",
-                sampleUrl.urlMode(),
-                sampleUrl.createdAt()
-        );
-
-        when(repository.findById(1L))
-                .thenReturn(Optional.of(sampleUrl))
-                .thenReturn(Optional.of(updatedUrl));
-
-        when(repository.updateDisplayName(1L, "네이버 메인"))
-                .thenReturn(true);
+        when(repository.findById(1L)).thenReturn(Optional.of(sampleUrl));
 
         ShortUrlResponse response = service.updateName(1L, request);
 
         assertEquals("네이버 메인", response.displayName());
-        verify(repository).updateDisplayName(1L, "네이버 메인");
+        assertEquals("네이버 메인", sampleUrl.getDisplayName());
+        verify(repository).flush();
     }
 
     @Test
     @DisplayName("이미 사용 중인 표시 이름으로 수정하면 예외가 발생한다")
     void updateDuplicateDisplayNameTest() {
-        ShortUrlNameUpdateRequest request =
-                new ShortUrlNameUpdateRequest("구글");
+        ShortUrlNameUpdateRequest request = new ShortUrlNameUpdateRequest("구글");
 
-        when(repository.findById(1L))
-                .thenReturn(Optional.of(sampleUrl));
-
-        when(repository.existsByDisplayName("구글"))
-                .thenReturn(true);
+        when(repository.findById(1L)).thenReturn(Optional.of(sampleUrl));
+        when(repository.existsByDisplayName("구글")).thenReturn(true);
 
         assertThrows(
                 DuplicateDisplayNameException.class,
                 () -> service.updateName(1L, request)
         );
 
-        verify(repository, never()).updateDisplayName(
-                anyLong(), anyString()
+        assertEquals("네이버", sampleUrl.getDisplayName());
+        verify(repository, never()).flush();
+    }
+
+    @Test
+    @DisplayName("수정 중 UPDATE에서 이름 중복이 발생하면 이름 중복 예외로 변환한다")
+    void updateNameConflictOnFlushTest() {
+        ShortUrlNameUpdateRequest request = new ShortUrlNameUpdateRequest("구글");
+
+        when(repository.findById(1L)).thenReturn(Optional.of(sampleUrl));
+        doThrow(new DataIntegrityViolationException("Duplicate display_name"))
+                .when(repository).flush();
+
+        assertThrows(
+                DuplicateDisplayNameException.class,
+                () -> service.updateName(1L, request)
         );
     }
 
     @Test
     @DisplayName("기존 표시 이름과 동일하게 수정하면 DB 업데이트를 수행하지 않는다")
     void updateSameDisplayNameTest() {
-        ShortUrlNameUpdateRequest request =
-                new ShortUrlNameUpdateRequest("네이버");
+        ShortUrlNameUpdateRequest request = new ShortUrlNameUpdateRequest("네이버");
 
-        when(repository.findById(1L))
-                .thenReturn(Optional.of(sampleUrl));
+        when(repository.findById(1L)).thenReturn(Optional.of(sampleUrl));
 
         ShortUrlResponse response = service.updateName(1L, request);
 
         assertEquals("네이버", response.displayName());
-
-        verify(repository, never()).updateDisplayName(
-                anyLong(), anyString()
-        );
+        verify(repository, never()).existsByDisplayName(anyString());
+        verify(repository, never()).flush();
     }
 
     @Test
     @DisplayName("존재하지 않는 링크의 이름을 수정하면 예외가 발생한다")
     void updateNameNotFoundTest() {
-        ShortUrlNameUpdateRequest request =
-                new ShortUrlNameUpdateRequest("새 이름");
+        ShortUrlNameUpdateRequest request = new ShortUrlNameUpdateRequest("새 이름");
 
-        when(repository.findById(999L))
-                .thenReturn(Optional.empty());
+        when(repository.findById(999L)).thenReturn(Optional.empty());
 
         assertThrows(
                 ShortUrlNotFoundException.class,
@@ -448,24 +439,28 @@ class ShortUrlServiceTest {
         );
     }
 
+    // ===== 삭제 =====
+
     @Test
     @DisplayName("등록된 단축 URL을 삭제할 수 있다")
     void deleteShortUrlTest() {
-        when(repository.deleteById(1L)).thenReturn(true);
+        when(repository.findById(1L)).thenReturn(Optional.of(sampleUrl));
 
         assertDoesNotThrow(() -> service.delete(1L));
 
-        verify(repository).deleteById(1L);
+        verify(repository).delete(sampleUrl);
     }
 
     @Test
     @DisplayName("존재하지 않는 단축 URL을 삭제하면 예외가 발생한다")
     void deleteShortUrlNotFoundTest() {
-        when(repository.deleteById(999L)).thenReturn(false);
+        when(repository.findById(999L)).thenReturn(Optional.empty());
 
         assertThrows(
                 ShortUrlNotFoundException.class,
                 () -> service.delete(999L)
         );
+
+        verify(repository, never()).delete(any(ShortUrl.class));
     }
 }
