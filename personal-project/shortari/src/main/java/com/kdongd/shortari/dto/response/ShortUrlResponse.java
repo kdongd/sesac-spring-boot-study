@@ -22,16 +22,16 @@ public record ShortUrlResponse(
 
         String generatedUrl = baseUrl
                 + "/r/"
-                + shortUrl.shortCode();
+                + shortUrl.getShortCode();
 
         return new ShortUrlResponse(
-                shortUrl.id(),
-                shortUrl.originalUrl(),
-                shortUrl.shortCode(),
+                shortUrl.getId(),
+                shortUrl.getOriginalUrl(),
+                shortUrl.getShortCode(),
                 generatedUrl,
-                shortUrl.displayName(),
-                shortUrl.urlMode(),
-                shortUrl.createdAt()
+                shortUrl.getDisplayName(),
+                shortUrl.getUrlMode(),
+                shortUrl.getCreatedAt()
         );
     }
 }
